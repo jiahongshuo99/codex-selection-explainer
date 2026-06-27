@@ -20,35 +20,56 @@
 
 要求：
 
-- macOS
+- macOS、Windows 或 Linux
 - Chrome、Chrome Canary、Edge 或 Brave
 - Node.js 20+
-- 本机已安装 Codex CLI，默认路径为 `/Applications/Codex.app/Contents/Resources/codex`
+- 本机已安装 Codex CLI
 
 克隆或进入项目目录：
 
 ```bash
-cd /Users/jiahongshuo/Repos/codex-selection-explainer
+git clone <repo-url>
+cd codex-selection-explainer
 ```
 
-安装 native host：
+运行对应平台的一键脚本：
 
 ```bash
-npm run install-host
+# macOS
+bash scripts/setup-mac.sh
+
+# Linux
+bash scripts/setup-linux.sh
+```
+
+Windows 在 PowerShell 里运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
 ```
 
 默认安装到 Google Chrome。其他浏览器可以显式指定：
 
 ```bash
-npm run install-host -- --browser=chrome-canary
-npm run install-host -- --browser=edge
-npm run install-host -- --browser=brave
+bash scripts/setup-mac.sh --browser=edge
+bash scripts/setup-linux.sh --browser=brave
+npm run setup -- --browser=chrome-canary
 ```
 
-脚本会做三件事：
+Windows 示例：
 
-- 生成 `native-host/run.sh`，里面写入当前 Node.js 的绝对路径。
-- 写入浏览器的 Native Messaging host manifest。
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1 --browser=edge
+```
+
+脚本会做这些事：
+
+- 生成 `native-host/run.sh` 或 `native-host/run.cmd`。
+- 写入当前浏览器的 Native Messaging host manifest；Windows 会同时写入当前用户的注册表项。
+- 保存当前 Node.js 可执行文件路径到 `native-host/node-path.txt`，作为 native host 启动时的本地 fallback。
+- macOS 会执行 `launchctl setenv CODEX_SELECTION_EXPLAINER_NODE_PATH ...`；Windows 会写入当前用户的 `CODEX_SELECTION_EXPLAINER_NODE_PATH` 环境变量。
+- 如果能找到 Codex CLI，并且本地还没有 `native-host/config.json`，会自动生成一份本机配置。
+- 安装后会 ping 一次 native host，确认本地桥能启动。
 - 打印稳定的扩展 ID 和需要加载的扩展目录。
 
 然后在 Chrome 里加载扩展：
@@ -111,7 +132,7 @@ npm run check-host
 如果页面里显示 `Native host has exited.`，通常先重新安装 native host：
 
 ```bash
-npm run install-host
+npm run setup
 ```
 
 如果页面一直停在 `Codex 正在解释...`，先刷新扩展和页面：
@@ -121,7 +142,25 @@ npm run install-host
 3. 刷新正在使用的网页。
 4. 重新划线发送。
 
-Chrome 从图形界面启动 native host 时通常没有终端里的 Homebrew 或 nvm `PATH`，所以安装脚本会把 Node.js 的绝对路径写进 `native-host/run.sh`。换了 Node 路径后，需要重新运行 `npm run install-host`。
+Chrome 从图形界面启动 native host 时通常没有终端里的 Homebrew、nvm 或 asdf `PATH`。所以 launcher 不直接写死某个 Node 安装目录，而是按顺序读取：
+
+1. `CODEX_SELECTION_EXPLAINER_NODE_PATH`
+2. macOS 的 `launchctl getenv CODEX_SELECTION_EXPLAINER_NODE_PATH`
+3. Windows 的 `HKCU\Environment\CODEX_SELECTION_EXPLAINER_NODE_PATH`
+4. 一键脚本生成的 `native-host/node-path.txt`
+5. 当前进程能找到的 `node`
+
+换了 Node 版本或安装位置后，重新跑一键脚本即可：
+
+```bash
+npm run setup
+```
+
+也可以只重新安装 native host：
+
+```bash
+npm run install-host
+```
 
 ## 配置
 
@@ -150,6 +189,7 @@ cp native-host/config.example.json native-host/config.json
 也可以用环境变量临时覆盖：
 
 ```bash
+CODEX_SELECTION_EXPLAINER_NODE_PATH=/path/to/node npm run install-host
 CODEX_SELECTION_EXPLAINER_CODEX_PATH=/path/to/codex npm run check-host
 CODEX_SELECTION_EXPLAINER_MODEL=gpt-5 npm run check-host
 CODEX_SELECTION_EXPLAINER_TIMEOUT_MS=180000 npm run check-host
@@ -232,6 +272,12 @@ exec
 
 ## 开发命令
 
+一键安装或修复本地桥：
+
+```bash
+npm run setup
+```
+
 运行测试：
 
 ```bash
@@ -267,6 +313,8 @@ npm run generate-icons
 ```bash
 npm run install-host
 ```
+
+`npm run install-host` 只重写 native host launcher、manifest 和 Node 路径 fallback；`npm run setup` 会额外处理 macOS/Windows 用户环境、Codex CLI 本地配置和安装后检查。
 
 改了 `extension/` 里的内容后，需要在 `chrome://extensions` 里刷新扩展，并刷新已经打开的网页。内容脚本不会自动热更新到旧页面里。
 

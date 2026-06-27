@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "setup:mac": "bash scripts/setup-mac.sh",
+    "setup:linux": "bash scripts/setup-linux.sh",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "test": "node --test",
     "install-host": "node scripts/install-host.mjs",
     "print-extension-id": "node scripts/print-extension-id.mjs",

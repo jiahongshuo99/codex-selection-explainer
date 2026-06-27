@@ -3,4 +3,7 @@ node_modules/
 .codex-browser-workspace/
 native-host/config.json
 native-host/usage.jsonl
+native-host/node-path.txt
+native-host/run.cmd
+native-host/run.sh
 output/
