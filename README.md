@@ -21,7 +21,7 @@
 要求：
 
 - macOS、Windows 或 Linux
-- Chrome、Chrome Canary、Edge 或 Brave
+- Chrome、Chromium、Chrome Canary、Edge 或 Brave
 - Node.js 20+
 - 本机已安装 Codex CLI
 
@@ -53,6 +53,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
 ```bash
 bash scripts/setup-mac.sh --browser=edge
 bash scripts/setup-linux.sh --browser=brave
+bash scripts/setup-linux.sh --browser=chromium
 npm run setup -- --browser=chrome-canary
 ```
 

@@ -39,6 +39,25 @@ describe("native host launcher", () => {
 });
 
 describe("native host install targets", () => {
+  it("uses browser NativeMessagingHosts directories on macOS", () => {
+    const target = getInstallTarget({
+      browserName: "brave",
+      platform: "darwin",
+      homeDir: "/Users/alice",
+      projectRoot: "/Users/alice/Repos/codex-selection-explainer"
+    });
+
+    assert.equal(
+      target.manifestPath,
+      "/Users/alice/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.local.codex_selection_explainer.json"
+    );
+    assert.equal(
+      target.launcherPath,
+      "/Users/alice/Repos/codex-selection-explainer/native-host/run.sh"
+    );
+    assert.equal(target.registryKey, "");
+  });
+
   it("uses browser NativeMessagingHosts directories on Linux", () => {
     const target = getInstallTarget({
       browserName: "chrome",
@@ -56,6 +75,31 @@ describe("native host install targets", () => {
       "/home/alice/Repos/codex-selection-explainer/native-host/run.sh"
     );
     assert.equal(target.registryKey, "");
+  });
+
+  it("supports Chromium native messaging locations", () => {
+    const linuxTarget = getInstallTarget({
+      browserName: "chromium",
+      platform: "linux",
+      homeDir: "/home/alice",
+      projectRoot: "/home/alice/Repos/codex-selection-explainer"
+    });
+    const windowsTarget = getInstallTarget({
+      browserName: "chromium",
+      platform: "win32",
+      env: { LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local" },
+      homeDir: "C:\\Users\\Alice",
+      projectRoot: "C:\\Users\\Alice\\Repos\\codex-selection-explainer"
+    });
+
+    assert.equal(
+      linuxTarget.manifestPath,
+      "/home/alice/.config/chromium/NativeMessagingHosts/com.local.codex_selection_explainer.json"
+    );
+    assert.equal(
+      windowsTarget.registryKey,
+      "HKCU\\Software\\Chromium\\NativeMessagingHosts\\com.local.codex_selection_explainer"
+    );
   });
 
   it("uses a Windows registry key and app data manifest path on Windows", () => {

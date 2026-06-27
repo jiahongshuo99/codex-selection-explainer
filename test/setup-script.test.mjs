@@ -25,6 +25,7 @@ describe("setup script helpers", () => {
   it("maps browser names to their extension settings pages", () => {
     assert.equal(extensionSettingsUrl("chrome"), "chrome://extensions");
     assert.equal(extensionSettingsUrl("chrome-canary"), "chrome://extensions");
+    assert.equal(extensionSettingsUrl("chromium"), "chrome://extensions");
     assert.equal(extensionSettingsUrl("edge"), "edge://extensions");
     assert.equal(extensionSettingsUrl("brave"), "brave://extensions");
   });

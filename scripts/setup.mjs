@@ -25,6 +25,9 @@ export function extensionSettingsUrl(browserName) {
   if (browserName === "brave") {
     return "brave://extensions";
   }
+  if (browserName === "chromium") {
+    return "chrome://extensions";
+  }
   return "chrome://extensions";
 }
 
@@ -91,7 +94,9 @@ export async function runSetup({
     projectRoot,
     nodePath
   });
-  const checkStatus = checkHost ? await checkNativeHost(target.launcherPath, env) : "skipped";
+  const checkStatus = checkHost
+    ? await checkNativeHost({ launcherPath: target.launcherPath, env, platform })
+    : "skipped";
   const summary = buildSetupSummary({
     browserName,
     extensionId,
@@ -179,11 +184,11 @@ async function persistNodePath({ platform, nodePath }) {
   return "wrote native-host/node-path.txt as the Node fallback";
 }
 
-async function checkNativeHost(launcherPath, env) {
+async function checkNativeHost({ launcherPath, env, platform = process.platform }) {
   const child = spawn(launcherPath, {
     stdio: ["pipe", "pipe", "pipe"],
     env,
-    shell: process.platform === "win32"
+    shell: platform === "win32"
   });
   const stdout = [];
   const stderr = [];

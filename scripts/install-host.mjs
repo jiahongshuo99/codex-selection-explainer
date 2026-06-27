@@ -18,6 +18,14 @@ const BROWSER_CONFIGS = {
     windowsRegistryKey: () =>
       `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`
   },
+  chromium: {
+    darwinDir: (homeDir) =>
+      path.posix.join(homeDir, "Library/Application Support/Chromium/NativeMessagingHosts"),
+    linuxDir: (homeDir) =>
+      path.posix.join(homeDir, ".config/chromium/NativeMessagingHosts"),
+    windowsRegistryKey: () =>
+      `HKCU\\Software\\Chromium\\NativeMessagingHosts\\${HOST_NAME}`
+  },
   "chrome-canary": {
     darwinDir: (homeDir) =>
       path.posix.join(
