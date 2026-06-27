@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Codex Selection Explainer",
+  "description": "Explain selected browser text with your local Codex CLI.",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyOxMxTqVGmcI+BiBAFzeb42cPVfOatc9QkgXn5Xu9dJmTORtrBz5sePu00BZAU/RNMTPE3SKKtbNuplBoJbuQ5POyTCJi1to9MO8aAenZ5T4HmL5n6R+tU8pty69rxfXcq0TFP3vfNFbvL3yHfpSh211YL61ryCaa86XsylY/wDCYsJ/97Y9NlGNL3Dz7RGeZ1CmAbr07gN64WLuGuyiNU4BXZSrOl9zl0ZxVkdXovQee1mouup4DP/tlaNuWBN4UDpXdNQ0YJxpEjmlGur8lAeyRH1SQWExeO3K0lFJmQZctH0O9gtxqBWCLf5f0/9F/RwF/77mLC2KzmjMbMLJKwIDAQAB",
+  "permissions": ["nativeMessaging", "storage", "unlimitedStorage"],
+  "host_permissions": ["<all_urls>"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "vendor/katex/katex.min.js",
+        "context-utils.js",
+        "selection-highlight.js",
+        "dialog-utils.js",
+        "render-math.js",
+        "history-store.js",
+        "anchor-utils.js",
+        "runtime-utils.js",
+        "content-script.js"
+      ],
+      "css": ["vendor/katex/katex.min.css", "styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/katex/fonts/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "Codex Selection Explainer"
+  }
+}

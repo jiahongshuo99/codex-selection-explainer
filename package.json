@@ -1,0 +1,17 @@
+{
+  "name": "codex-selection-explainer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "install-host": "node scripts/install-host.mjs",
+    "print-extension-id": "node scripts/print-extension-id.mjs",
+    "check-host": "node scripts/check-host.mjs",
+    "check-explain": "node scripts/check-explain.mjs",
+    "generate-icons": "node scripts/generate-icons.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
