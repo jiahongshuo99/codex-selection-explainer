@@ -8,6 +8,7 @@
   let selectionSnapshot = null;
   let actionButton = null;
   let dialog = null;
+  let activeThreadRecord = null;
   let pageHistoryRecords = [];
   let renderHistoryFrame = 0;
   const contextUtils = globalThis.CodexSelectionContextUtils;
@@ -172,9 +173,11 @@
     }
 
     highlightUtils.renderSelectionHighlight(selectionSnapshot?.highlightRects || [], document);
+    activeThreadRecord = null;
 
     dialog = document.createElement("section");
     dialog.id = DIALOG_ID;
+    dialog.className = "codex-selection-explainer-thread-dialog";
     dialog.innerHTML = `
       <header data-drag-handle>
         <div class="codex-selection-explainer-brand">
@@ -192,11 +195,20 @@
           </svg>
         </button>
       </header>
-      <textarea rows="3" spellcheck="false">解释这段内容</textarea>
-      <div class="codex-selection-explainer-actions">
-        <button type="button" data-submit>发送</button>
+      <section class="codex-selection-explainer-thread-context">
+        <div class="codex-selection-explainer-thread-context-header">
+          <label>划线内容</label>
+          <button type="button" data-toggle-selection aria-expanded="false">展开</button>
+        </div>
+        <div class="codex-selection-explainer-thread-selection is-collapsed" data-selection></div>
+      </section>
+      <div class="codex-selection-explainer-thread-messages" data-thread-messages></div>
+      <div class="codex-selection-explainer-composer">
+        <textarea rows="3" spellcheck="false">解释这段内容</textarea>
+        <div class="codex-selection-explainer-actions">
+          <button type="button" data-submit>发送</button>
+        </div>
       </div>
-      <div class="codex-selection-explainer-output" data-output aria-live="polite"></div>
     `;
 
     dialog.style.left = "0px";
@@ -204,11 +216,19 @@
     dialog.style.visibility = "hidden";
     dialog.querySelector("[data-close]").addEventListener("click", closeDialog);
     dialog.querySelector("[data-submit]").addEventListener("click", submitQuestion);
+    dialog.querySelector("[data-toggle-selection]").addEventListener("click", (event) => {
+      toggleSelectionBlock(dialog, event.currentTarget);
+    });
     dialog.querySelector("textarea").addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         submitQuestion();
       }
     });
+    renderMath.renderTextWithMath(
+      dialog.querySelector("[data-selection]"),
+      selectionSnapshot.selection
+    );
+    renderThreadMessages(dialog.querySelector("[data-thread-messages]"), []);
     document.documentElement.append(dialog);
     positionDialog(dialog, rect);
     enableDialogDrag(dialog, dialog.querySelector("[data-drag-handle]"));
@@ -250,45 +270,90 @@
   }
 
   async function submitQuestion() {
-    if (!dialog || !selectionSnapshot) {
+    const requestSource = getActiveRequestSource();
+
+    if (!dialog || !requestSource) {
       return;
     }
 
     const submitButton = dialog.querySelector("[data-submit]");
-    const output = dialog.querySelector("[data-output]");
+    const messagesElement = dialog.querySelector("[data-thread-messages]");
+    const textarea = dialog.querySelector("textarea");
     const question = dialog.querySelector("textarea").value.trim() || "解释这段内容";
+    const pendingMessages = [
+      ...(activeThreadRecord?.messages || []),
+      { role: "user", text: question },
+      { role: "assistant", text: "Codex 正在解释..." }
+    ];
+
     submitButton.disabled = true;
-    output.textContent = "Codex 正在解释...";
+    textarea.disabled = true;
+    renderThreadMessages(messagesElement, pendingMessages, { pending: true });
 
     runtimeUtils
-      .sendRuntimeMessageSafe(
-      {
-        type: "codex-selection-explain",
+      .sendRuntimeMessageSafe({
+        type: "codex-selection-thread-message",
+        threadId: activeThreadRecord?.id || "",
+        url: location.href,
         question,
-        selection: selectionSnapshot.selection,
-        context: selectionSnapshot.context,
-        anchor: selectionSnapshot.anchor
-      }
-    )
+        selection: requestSource.selection,
+        context: requestSource.context,
+        anchor: requestSource.anchor
+      })
       .then((response) => {
         submitButton.disabled = false;
+        textarea.disabled = false;
 
         if (!response?.ok) {
-          output.textContent = `调用失败：${response?.error || "未知错误"}`;
+          renderThreadMessages(messagesElement, [
+            ...(activeThreadRecord?.messages || []),
+            { role: "user", text: question },
+            { role: "assistant", text: `调用失败：${response?.error || "未知错误"}` }
+          ]);
           return;
         }
 
-        renderMath.renderTextWithMath(output, response.text || "Codex 没有返回内容。");
-
         if (response.historyRecord) {
+          activeThreadRecord = response.historyRecord;
+          dialog.dataset.threadId = response.historyRecord.id;
           upsertPageHistoryRecord(response.historyRecord);
           scheduleRenderHistoryMarkers();
+          renderThreadMessages(messagesElement, response.historyRecord.messages || []);
+        } else {
+          renderThreadMessages(messagesElement, [
+            ...(activeThreadRecord?.messages || []),
+            { role: "user", text: question },
+            { role: "assistant", text: response.text || "Codex 没有返回内容。" }
+          ]);
         }
+
+        textarea.value = "";
       });
+  }
+
+  function getActiveRequestSource() {
+    if (activeThreadRecord) {
+      return {
+        selection: activeThreadRecord.selectionText || activeThreadRecord.anchor?.exactText || "",
+        context: activeThreadRecord.contextSnapshot || {},
+        anchor: activeThreadRecord.anchor || {}
+      };
+    }
+
+    if (!selectionSnapshot) {
+      return null;
+    }
+
+    return {
+      selection: selectionSnapshot.selection,
+      context: selectionSnapshot.context,
+      anchor: selectionSnapshot.anchor
+    };
   }
 
   function closeDialog() {
     removeDialogElement();
+    activeThreadRecord = null;
     highlightUtils.clearSelectionHighlight(document);
   }
 
@@ -455,8 +520,8 @@
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "codex-selection-explainer-history-delete";
-      deleteButton.title = "删除这条问答记录";
-      deleteButton.setAttribute("aria-label", "删除这条问答记录");
+      deleteButton.title = "删除这条对话记录";
+      deleteButton.setAttribute("aria-label", "删除这条对话记录");
       deleteButton.innerHTML = `
         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
           <path d="M7 5V3.8h6V5" />
@@ -491,10 +556,12 @@
     removeActionButton();
     removeDialogElement();
     highlightUtils.clearSelectionHighlight(document);
+    activeThreadRecord = record;
 
     dialog = document.createElement("section");
     dialog.id = DIALOG_ID;
-    dialog.className = "codex-selection-explainer-history-dialog";
+    dialog.className = "codex-selection-explainer-thread-dialog codex-selection-explainer-history-dialog";
+    dialog.dataset.threadId = record.id;
     dialog.innerHTML = `
       <header data-drag-handle>
         <div class="codex-selection-explainer-brand">
@@ -504,10 +571,10 @@
               <path d="M18.5 4.8v3.4M16.8 6.5h3.4" />
             </svg>
           </span>
-          <strong>Codex History</strong>
+          <strong>Codex Thread</strong>
         </div>
         <div class="codex-selection-explainer-header-actions">
-          <button type="button" data-delete-history title="删除这条问答记录" aria-label="删除这条问答记录">
+          <button type="button" data-delete-history title="删除这条对话记录" aria-label="删除这条对话记录">
             <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
               <path d="M7 5V3.8h6V5" />
               <path d="M4.8 5h10.4" />
@@ -522,26 +589,26 @@
           </button>
         </div>
       </header>
-      <div class="codex-selection-explainer-history-block">
-        <div class="codex-selection-explainer-history-block-header">
+      <section class="codex-selection-explainer-thread-context">
+        <div class="codex-selection-explainer-thread-context-header">
           <label>划线内容</label>
           <button type="button" data-toggle-selection aria-expanded="false">展开</button>
         </div>
-        <div class="codex-selection-explainer-history-selection is-collapsed" data-selection></div>
-      </div>
-      <div class="codex-selection-explainer-history-block">
-        <label>问题</label>
-        <div data-question></div>
-      </div>
-      <div class="codex-selection-explainer-history-block">
-        <label>回答</label>
-        <div class="codex-selection-explainer-output codex-selection-explainer-history-answer" data-answer></div>
+        <div class="codex-selection-explainer-thread-selection is-collapsed" data-selection></div>
+      </section>
+      <div class="codex-selection-explainer-thread-messages" data-thread-messages></div>
+      <div class="codex-selection-explainer-composer">
+        <textarea rows="3" spellcheck="false" placeholder="继续追问这段划线内容"></textarea>
+        <div class="codex-selection-explainer-actions">
+          <button type="button" data-submit>发送</button>
+        </div>
       </div>
     `;
     dialog.style.left = "0px";
     dialog.style.top = "0px";
     dialog.style.visibility = "hidden";
     dialog.querySelector("[data-close]").addEventListener("click", closeDialog);
+    dialog.querySelector("[data-submit]").addEventListener("click", submitQuestion);
     dialog.querySelector("[data-delete-history]").addEventListener("click", (event) => {
       deleteHistoryRecord(record.id, {
         closeDialog: true,
@@ -549,14 +616,18 @@
       });
     });
     dialog.querySelector("[data-toggle-selection]").addEventListener("click", (event) => {
-      toggleHistorySelection(dialog, event.currentTarget);
+      toggleSelectionBlock(dialog, event.currentTarget);
+    });
+    dialog.querySelector("textarea").addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        submitQuestion();
+      }
     });
     renderMath.renderTextWithMath(
       dialog.querySelector("[data-selection]"),
       record.selectionText || record.anchor?.exactText || ""
     );
-    renderMath.renderTextWithMath(dialog.querySelector("[data-question]"), record.question || "");
-    renderMath.renderTextWithMath(dialog.querySelector("[data-answer]"), record.answer || "");
+    renderThreadMessages(dialog.querySelector("[data-thread-messages]"), record.messages || []);
     document.documentElement.append(dialog);
     positionFloatingElement(dialog, viewportX + 8, viewportY + 8);
     enableDialogDrag(dialog, dialog.querySelector("[data-drag-handle]"));
@@ -622,18 +693,64 @@
       return;
     }
 
-    const output = dialog?.querySelector("[data-answer]") || dialog?.querySelector("[data-output]");
+    const messages = dialog?.querySelector("[data-thread-messages]");
+    if (messages) {
+      const error = document.createElement("div");
+      error.className = "codex-selection-explainer-thread-error";
+      error.textContent = text;
+      messages.append(error);
+      messages.scrollTop = messages.scrollHeight;
+      return;
+    }
+
+    const output = dialog?.querySelector("[data-output]");
     if (output) {
       output.textContent = text;
     }
   }
 
-  function toggleHistorySelection(dialogElement, toggleButton) {
+  function toggleSelectionBlock(dialogElement, toggleButton) {
     const selectionElement = dialogElement.querySelector("[data-selection]");
     const collapsed = selectionElement.classList.toggle("is-collapsed");
 
     toggleButton.setAttribute("aria-expanded", String(!collapsed));
     toggleButton.textContent = collapsed ? "展开" : "收起";
+  }
+
+  function renderThreadMessages(container, messages, options = {}) {
+    container.textContent = "";
+    const visibleMessages = Array.isArray(messages) ? messages : [];
+
+    if (!visibleMessages.length) {
+      const empty = document.createElement("div");
+      empty.className = "codex-selection-explainer-thread-empty";
+      empty.textContent = "围绕这段划线内容提问。";
+      container.append(empty);
+      return;
+    }
+
+    visibleMessages.forEach((message, index) => {
+      const item = document.createElement("article");
+      const role = message.role === "assistant" ? "assistant" : "user";
+      item.className = `codex-selection-explainer-thread-message is-${role}`;
+
+      if (options.pending && index === visibleMessages.length - 1) {
+        item.classList.add("is-pending");
+      }
+
+      const label = document.createElement("div");
+      label.className = "codex-selection-explainer-thread-message-label";
+      label.textContent = role === "assistant" ? "Codex" : "你";
+
+      const body = document.createElement("div");
+      body.className = "codex-selection-explainer-thread-message-body";
+      renderMath.renderTextWithMath(body, message.text || "");
+
+      item.append(label, body);
+      container.append(item);
+    });
+
+    container.scrollTop = container.scrollHeight;
   }
 
   function positionFloatingElement(element, left, top) {

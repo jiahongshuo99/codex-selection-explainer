@@ -11,9 +11,10 @@
 - 对话框固定在当前可视窗口内，不随页面滚动跑走，也不会弹出到可见区域外。
 - 自动附带页面基础信息和选区附近上下文，包括 URL、标签页标题、页面标题、canonical、meta description、标题层级、面包屑、附近正文、整页相关文本、选区元素路径等。
 - 回答支持 LaTeX 数学公式渲染，覆盖 `\(...\)`、`\[...\]` 和 `$$...$$`。
-- 每次解释成功后，会在本地保存划线内容、问题、回答和文本锚点。
-- 再次打开同一 URL 时，已解释过的文字会显示细下划线；点击下划线可以回看相关 QA。
-- 历史 QA 支持软删除。删掉某段划线下的全部 QA 后，这段历史划线也会消失。
+- 每次解释成功后，会在本地保存划线内容、thread 消息、冻结页面上下文和文本锚点。
+- 同一段划线可以继续追问；插件会把历史消息按追加顺序回填给本机 Codex CLI。
+- 再次打开同一 URL 时，已解释过的文字会显示细下划线；点击下划线可以回看和继续历史对话。
+- 历史对话支持软删除。删掉某段划线下的全部对话后，这段历史划线也会消失。
 - 插件弹窗里可以检查本地 Native Messaging 桥是否可用。
 
 ## 安装
@@ -89,7 +90,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1 --browser=edg
 3. 在对话框里输入问题，或直接使用默认的“解释这段内容”。
 4. 点击“发送”。
 
-发送后，插件会把选区和页面上下文发给本机 native host。native host 会调用 Codex CLI，返回解释文本后在页面内渲染。
+发送后，插件会把选区和页面上下文发给本机 native host。native host 会调用 Codex CLI，返回解释文本后在页面内渲染。继续追问时，插件会复用第一次冻结的选区和页面上下文，并把 thread 历史消息按顺序追加到 prompt 末尾。
 
 对话框支持：
 
@@ -97,24 +98,27 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1 --browser=edg
 - 拖拽右下角调整大小。
 - `Cmd/Ctrl + Enter` 发送问题。
 - 数学公式渲染。
+- 围绕同一段划线继续追问。
 - 页面缩放或窗口变化后保持在可视区域内。
 
 有些页面不能使用内容脚本，例如 `chrome://` 页面、Chrome Web Store、浏览器内部页面。这是浏览器限制，不是 native host 的问题。
 
 ## 历史记录
 
-解释成功后，插件会把记录写入 `chrome.storage.local`。保存的内容包括：
+解释成功后，插件会把 thread 记录写入 `chrome.storage.local`。保存的内容包括：
 
 - 划线文本
-- 问题
-- 回答
+- 多轮 user/assistant 消息
+- 首次解释时冻结的页面上下文快照
 - 当前页面 URL 的归一化 key，去掉 hash
 - 页面标题
 - 文本锚点，包括选中文本、前缀和后缀
 
-同一 URL 再打开时，插件会尝试用文本锚点重新定位原文，并在文字下方画一条细线。点击细线会显示这个划线内容关联的 QA 列表；再点某条 QA 会打开完整历史对话框。
+同一 URL 再打开时，插件会尝试用文本锚点重新定位原文，并在文字下方画一条细线。点击细线会显示这个划线内容关联的 thread 列表；再点某条 thread 会打开完整历史对话框，并且可以继续追问。
 
-删除历史 QA 是软删除：记录会保留在本地存储状态里并写入 `deletedAt`，但普通历史列表、页面下划线和回看入口都会过滤掉它。某段划线下的 QA 全部软删除后，这段下划线不会再展示。
+删除历史 thread 是软删除：记录会保留在本地存储状态里并写入 `deletedAt`，但普通历史列表、页面下划线和回看入口都会过滤掉它。某段划线下的 thread 全部软删除后，这段下划线不会再展示。
+
+为了尽量利用 LLM 的前缀缓存，prompt 结构是 append-only 的：固定系统指令、划线内容和页面上下文在前；thread 消息按时间顺序追加在后，当前问题就是最后一个 `[USER]` 消息。继续追问不会重写前面的上下文快照。
 
 历史记录只保存在当前 Chrome profile 的本地存储里，不会同步到远端账号。
 
@@ -230,10 +234,10 @@ test/            Node.js 测试
 
 关键文件：
 
-- `extension/content-script.js`: 页面内选区、浮动按钮、对话框、历史划线和历史回看入口。
-- `extension/background.js`: Chrome service worker，负责转发解释请求和历史存储请求。
+- `extension/content-script.js`: 页面内选区、浮动按钮、thread 对话框、历史划线和历史回看入口。
+- `extension/background.js`: Chrome service worker，负责转发 thread 请求和历史存储请求。
 - `extension/context-utils.js`: 页面上下文采集。
-- `extension/history-store.js`: 历史记录构建、URL 归一化、软删除和查询。
+- `extension/history-store.js`: thread 记录构建、URL 归一化、软删除、旧 QA 迁移和查询。
 - `extension/anchor-utils.js`: 基于选中文本、前缀、后缀的文本锚点。
 - `extension/render-math.js`: 文本与 LaTeX 片段渲染。
 - `native-host/index.mjs`: Native Messaging 协议入口。
@@ -243,16 +247,17 @@ test/            Node.js 测试
 
 ## 请求链路
 
-解释一次选区时，链路如下：
+解释或继续追问一次选区时，链路如下：
 
 1. `content-script.js` 读取当前选区、构造文本锚点，并采集页面上下文。
-2. 内容脚本向 background 发送 `codex-selection-explain`。
-3. `background.js` 通过 Chrome Native Messaging 调用 `com.local.codex_selection_explainer`。
-4. `native-host/index.mjs` 解码消息，调用 `prompt.mjs` 生成中文解释 prompt。
-5. `codex-runner.mjs` 运行本机 Codex CLI。
-6. native host 把最终回答和 token 用量返回给 background。
-7. background 把成功回答存入 Chrome 本地历史。
-8. 内容脚本渲染回答，并重绘页面历史下划线。
+2. 内容脚本向 background 发送 `codex-selection-thread-message`。
+3. `background.js` 新建 thread 或读取既有 thread，把历史消息传给 native host。
+4. `background.js` 通过 Chrome Native Messaging 调用 `com.local.codex_selection_explainer`。
+5. `native-host/index.mjs` 解码消息，调用 `prompt.mjs` 生成 append-only 中文解释 prompt。
+6. `codex-runner.mjs` 运行本机 Codex CLI。
+7. native host 把最终回答和 token 用量返回给 background。
+8. background 把成功回答追加进 Chrome 本地 thread 历史。
+9. 内容脚本渲染消息流，并重绘页面历史下划线。
 
 Codex 调用参数默认包含：
 
@@ -269,7 +274,7 @@ exec
 -
 ```
 
-这意味着 Codex 运行在只读沙箱里，不需要审批，不复用历史会话，并从 stdin 接收本次 prompt。
+这意味着 Codex 运行在只读沙箱里，不需要审批，不复用 Codex CLI 自己的历史会话，并从 stdin 接收本次 prompt。多轮上下文由扩展本地维护。
 
 ## 开发命令
 
@@ -326,7 +331,7 @@ npm run install-host
 - 文本锚点构建和重复文本消歧。
 - 页面上下文采集和长度归一化。
 - 浮动按钮、fixed 弹窗、可视区域 clamp、页面缩放下的尺寸处理。
-- 历史记录 URL 归一化、排序和软删除。
+- 历史 thread URL 归一化、排序、软删除、旧 QA 迁移和消息追加。
 - Native Messaging 协议帧编码/解码。
 - Codex CLI 参数顺序、JSON 事件解析和 token 用量提取。
 - LaTeX 分段渲染。

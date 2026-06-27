@@ -30,7 +30,8 @@
     question = "",
     answer = "",
     context = {},
-    anchor = {}
+    anchor = {},
+    usage = null
   }) {
     const url = context.url || "";
     const normalizedAnchor = {
@@ -41,6 +42,7 @@
 
     return {
       id,
+      threadId: id,
       urlKey: createUrlKey(url),
       url,
       title: context.tabTitle || context.title || "",
@@ -48,14 +50,45 @@
       question: String(question || ""),
       answer: String(answer || ""),
       createdAt: now,
+      updatedAt: now,
       anchorKey: createAnchorKey(normalizedAnchor),
-      anchor: normalizedAnchor
+      anchor: normalizedAnchor,
+      contextSnapshot: clonePlainObject(context),
+      messages: buildInitialMessages({
+        now,
+        question,
+        answer,
+        usage
+      })
+    };
+  }
+
+  function appendThreadTurn(record, {
+    now = new Date().toISOString(),
+    question = "",
+    answer = "",
+    usage = null
+  } = {}) {
+    const normalized = normalizeRecord(record);
+    const nextMessages = [
+      ...normalized.messages,
+      buildThreadMessage({ role: "user", text: question, createdAt: now }),
+      buildThreadMessage({ role: "assistant", text: answer, createdAt: now, usage })
+    ].filter((message) => message.text);
+
+    return {
+      ...normalized,
+      question: String(question || ""),
+      answer: String(answer || ""),
+      updatedAt: now,
+      messages: nextMessages
     };
   }
 
   function addRecordToState(state, record) {
     const next = normalizeHistoryState(state);
-    const urlKey = record.urlKey || createUrlKey(record.url);
+    const normalizedRecord = normalizeRecord(record);
+    const urlKey = normalizedRecord.urlKey || createUrlKey(normalizedRecord.url);
 
     if (!urlKey) {
       return next;
@@ -63,12 +96,56 @@
 
     const existing = next.urls[urlKey]?.records || [];
     const records = [
-      { ...record, urlKey },
-      ...existing.filter((entry) => entry.id !== record.id)
+      { ...normalizedRecord, urlKey },
+      ...existing.filter((entry) => entry.id !== normalizedRecord.id)
     ].slice(0, MAX_RECORDS_PER_URL);
 
     next.urls[urlKey] = { records };
     return next;
+  }
+
+  function appendThreadTurnToState(state, urlOrKey, threadId, turn) {
+    const next = normalizeHistoryState(state);
+    const urlKey = next.urls[urlOrKey] ? urlOrKey : createUrlKey(urlOrKey);
+    const bucket = next.urls[urlKey];
+
+    if (!bucket || !threadId) {
+      return next;
+    }
+
+    let updatedRecord = null;
+    const remaining = [];
+
+    for (const record of bucket.records) {
+      if (record.id === threadId || record.threadId === threadId) {
+        updatedRecord = appendThreadTurn(record, turn);
+        continue;
+      }
+
+      remaining.push(record);
+    }
+
+    if (!updatedRecord) {
+      return next;
+    }
+
+    next.urls[urlKey] = {
+      records: [updatedRecord, ...remaining].slice(0, MAX_RECORDS_PER_URL)
+    };
+    return next;
+  }
+
+  function getRecordForUrl(state, urlOrKey, recordId, options = {}) {
+    const normalized = normalizeHistoryState(state);
+    const direct = normalized.urls[urlOrKey]?.records;
+    const records = direct || normalized.urls[createUrlKey(urlOrKey)]?.records || [];
+    return records.find((record) => {
+      if (!options.includeDeleted && record.deletedAt) {
+        return false;
+      }
+
+      return record.id === recordId || record.threadId === recordId;
+    }) || null;
   }
 
   function listRecordsForUrl(state, urlOrKey, options = {}) {
@@ -132,6 +209,13 @@
     return listRecordsForUrl(next, url);
   }
 
+  async function appendThreadTurnInStorage(storage, url, threadId, turn) {
+    const state = await readHistoryState(storage);
+    const next = appendThreadTurnToState(state, url, threadId, turn);
+    await storageSet(storage, { [STORAGE_KEY]: next });
+    return getRecordForUrl(next, url, threadId);
+  }
+
   async function readHistoryState(storage) {
     const result = await storageGet(storage, STORAGE_KEY);
     return normalizeHistoryState(result?.[STORAGE_KEY]);
@@ -145,7 +229,9 @@
     const urls = {};
     for (const [urlKey, bucket] of Object.entries(state.urls || {})) {
       urls[urlKey] = {
-        records: Array.isArray(bucket?.records) ? bucket.records : []
+        records: Array.isArray(bucket?.records)
+          ? bucket.records.map((record) => normalizeRecord(record))
+          : []
       };
     }
 
@@ -155,11 +241,128 @@
     };
   }
 
+  function normalizeRecord(record) {
+    if (!record || typeof record !== "object") {
+      return buildHistoryRecord({});
+    }
+
+    const id = String(record.id || record.threadId || createRecordId());
+    const createdAt = String(record.createdAt || new Date().toISOString());
+    const updatedAt = String(record.updatedAt || createdAt);
+    const selectionText = String(record.selectionText || record.anchor?.exactText || "");
+    const contextSnapshot = normalizeContextSnapshot(record);
+    const anchor = {
+      exactText: String(record.anchor?.exactText || selectionText),
+      prefixText: String(record.anchor?.prefixText || ""),
+      suffixText: String(record.anchor?.suffixText || "")
+    };
+    const messages = normalizeMessages(record.messages, {
+      createdAt,
+      question: record.question,
+      answer: record.answer
+    });
+
+    return {
+      ...record,
+      id,
+      threadId: String(record.threadId || id),
+      urlKey: record.urlKey || createUrlKey(record.url || contextSnapshot.url),
+      url: String(record.url || contextSnapshot.url || ""),
+      title: String(record.title || contextSnapshot.tabTitle || contextSnapshot.title || ""),
+      selectionText,
+      question: String(record.question || latestMessageText(messages, "user")),
+      answer: String(record.answer || latestMessageText(messages, "assistant")),
+      createdAt,
+      updatedAt,
+      anchorKey: record.anchorKey || createAnchorKey(anchor),
+      anchor,
+      contextSnapshot,
+      messages
+    };
+  }
+
+  function normalizeContextSnapshot(record) {
+    const snapshot = clonePlainObject(record.contextSnapshot || {});
+
+    if (!snapshot.url && record.url) {
+      snapshot.url = String(record.url);
+    }
+    if (!snapshot.title && record.title) {
+      snapshot.title = String(record.title);
+    }
+    if (!snapshot.tabTitle && record.title) {
+      snapshot.tabTitle = String(record.title);
+    }
+
+    return snapshot;
+  }
+
+  function buildInitialMessages({ now, question, answer, usage = null }) {
+    return [
+      buildThreadMessage({ role: "user", text: question, createdAt: now }),
+      buildThreadMessage({ role: "assistant", text: answer, createdAt: now, usage })
+    ].filter((message) => message.text);
+  }
+
+  function normalizeMessages(messages, fallback) {
+    if (Array.isArray(messages) && messages.length) {
+      return messages
+        .map((message) => buildThreadMessage({
+          id: message.id,
+          role: message.role,
+          text: message.text,
+          createdAt: message.createdAt,
+          usage: message.usage
+        }))
+        .filter((message) => message.text);
+    }
+
+    return buildInitialMessages({
+      now: fallback.createdAt,
+      question: fallback.question,
+      answer: fallback.answer,
+      usage: fallback.usage
+    });
+  }
+
+  function buildThreadMessage({ id = createMessageId(), role, text, createdAt, usage }) {
+    const normalizedRole = role === "assistant" ? "assistant" : "user";
+    const message = {
+      id,
+      role: normalizedRole,
+      text: String(text || ""),
+      createdAt: String(createdAt || new Date().toISOString())
+    };
+
+    if (usage && typeof usage === "object") {
+      message.usage = clonePlainObject(usage);
+    }
+
+    return message;
+  }
+
+  function latestMessageText(messages, role) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === role) {
+        return messages[index].text;
+      }
+    }
+
+    return "";
+  }
+
   function createRecordId() {
     const random =
       global.crypto?.randomUUID?.() ||
       `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     return `hist_${random}`;
+  }
+
+  function createMessageId() {
+    const random =
+      global.crypto?.randomUUID?.() ||
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return `msg_${random}`;
   }
 
   function createAnchorKey(anchor) {
@@ -191,6 +394,18 @@
     }
 
     return `a_${(hash >>> 0).toString(36)}_${(reverseHash >>> 0).toString(36)}`;
+  }
+
+  function clonePlainObject(value) {
+    if (!value || typeof value !== "object") {
+      return {};
+    }
+
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return {};
+    }
   }
 
   function storageGet(storage, key) {
@@ -232,10 +447,15 @@
   global.CodexSelectionHistoryStore = {
     STORAGE_KEY,
     addRecordToState,
+    appendThreadTurn,
+    appendThreadTurnInStorage,
+    appendThreadTurnToState,
     buildHistoryRecord,
     createEmptyHistoryState,
     createUrlKey,
+    getRecordForUrl,
     listRecordsForUrl,
+    readHistoryState,
     readHistoryForUrl,
     saveHistoryRecord,
     softDeleteHistoryRecord,

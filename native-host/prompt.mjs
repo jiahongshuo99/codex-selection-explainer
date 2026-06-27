@@ -9,7 +9,9 @@ const LIMITS = {
   heading: 180,
   headings: 10,
   link: 240,
-  links: 8
+  links: 8,
+  threadMessage: 6_000,
+  threadMessages: 20
 };
 
 function asString(value) {
@@ -46,6 +48,22 @@ function normalizeStringList(values, maxItems, maxLength) {
     .map((value) => truncate(value, maxLength))
     .filter(Boolean)
     .slice(0, maxItems);
+}
+
+function normalizeThreadMessages(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values
+    .map((message) => {
+      const role = message?.role === "assistant" ? "assistant" : "user";
+      const text = truncate(message?.text, LIMITS.threadMessage);
+
+      return text ? { role, text } : null;
+    })
+    .filter(Boolean)
+    .slice(-LIMITS.threadMessages);
 }
 
 export function normalizeRequest(input) {
@@ -94,7 +112,8 @@ export function normalizeRequest(input) {
       pageText: truncate(context.pageText, LIMITS.pageText),
       headings: normalizeHeadings(context.headings),
       nearbyLinks: normalizeStringList(context.nearbyLinks, LIMITS.links, LIMITS.link)
-    }
+    },
+    threadMessages: normalizeThreadMessages(input.threadMessages)
   };
 }
 
@@ -106,18 +125,21 @@ export function buildPrompt(input) {
   const nearbyLinks = request.context.nearbyLinks.length
     ? request.context.nearbyLinks.join("\n")
     : "未提供";
+  const conversationMessages = [
+    ...request.threadMessages,
+    { role: "user", text: request.question }
+  ];
 
   return [
     "你是一个浏览器划线解释助手。请用中文回答用户问题。",
     "",
     "回答要求：",
-    "- 直接解释划线内容和用户问题之间的关系。",
+    "- 直接解释划线内容和最后一个 [USER] 消息之间的关系。",
     "- 优先基于划线内容、页面标题、URL、附近正文和标题层级来回答。",
+    "- 对话消息按时间顺序追加；请只回答最后一个 [USER] 消息。",
     "- 如果上下文不足，请明确说明哪些部分是在推测。",
     "- 不要尝试执行本地命令，不要读取用户文件，不要修改任何文件。",
     "- 回答保持紧凑：先给结论，再补必要背景。",
-    "",
-    `用户问题：${request.question}`,
     "",
     "划线内容：",
     "<<<SELECTED_TEXT",
@@ -156,6 +178,13 @@ export function buildPrompt(input) {
     "整页相关文本：",
     "<<<PAGE_TEXT",
     request.context.pageText || "未提供",
-    "PAGE_TEXT>>>"
+    "PAGE_TEXT>>>",
+    "",
+    "对话消息：",
+    ...conversationMessages.flatMap((message) => [
+      `[${message.role.toUpperCase()}]`,
+      message.text,
+      ""
+    ]).slice(0, -1)
   ].join("\n");
 }

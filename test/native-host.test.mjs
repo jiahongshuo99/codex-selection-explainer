@@ -60,11 +60,38 @@ describe("prompt builder", () => {
     });
 
     assert.match(prompt, /请用中文回答/);
-    assert.match(prompt, /用户问题：解释这段/);
+    assert.match(prompt, /\[USER\]\n解释这段/);
     assert.match(prompt, /划线内容：/);
     assert.match(prompt, /Graph memory helps agents reason over relations\./);
     assert.match(prompt, /页面标题：Graphiti README/);
     assert.match(prompt, /页面 URL：https:\/\/github\.com\/getzep\/graphiti/);
+  });
+
+  it("keeps thread prompts append-only so prior turns remain a stable prefix", () => {
+    const baseRequest = {
+      type: "explain",
+      selection: "The squared L2 norm is x^T x.",
+      context: {
+        title: "Linear Algebra",
+        url: "https://example.test/linear",
+        surroundingText: "The squared L2 norm is x^T x."
+      }
+    };
+    const firstPrompt = buildPrompt({
+      ...baseRequest,
+      question: "为什么平方范数更方便？"
+    });
+    const secondPrompt = buildPrompt({
+      ...baseRequest,
+      question: "那梯度是什么？",
+      threadMessages: [
+        { role: "user", text: "为什么平方范数更方便？" },
+        { role: "assistant", text: "因为它去掉了平方根，求导更直接。" }
+      ]
+    });
+
+    assert.equal(secondPrompt.startsWith(`${firstPrompt}\n\n[ASSISTANT]\n`), true);
+    assert.match(secondPrompt, /\[USER\]\n那梯度是什么？$/);
   });
 
   it("includes rich browser page basics in the prompt", () => {

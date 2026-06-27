@@ -114,7 +114,7 @@
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   display: grid;
-  grid-template-rows: auto auto auto minmax(92px, 1fr);
+  grid-template-rows: auto auto minmax(116px, 1fr) auto;
   gap: 8px;
   padding: 10px;
   overflow: auto;
@@ -260,6 +260,122 @@
 .codex-selection-explainer-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.codex-selection-explainer-thread-context {
+  display: grid;
+  gap: 4px;
+}
+
+.codex-selection-explainer-thread-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.codex-selection-explainer-thread-context label {
+  color: #5c5f58;
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.codex-selection-explainer-thread-context [data-toggle-selection] {
+  min-width: 40px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid #d5d0c1;
+  background: #f2f1ec;
+  color: #30342f;
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.codex-selection-explainer-thread-context [data-toggle-selection]:hover {
+  background: #e7e5de;
+}
+
+.codex-selection-explainer-thread-selection {
+  border: 1px solid #d5d0c1;
+  border-radius: 0;
+  padding: 7px 8px;
+  background: #fffffc;
+  color: #181a18;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.codex-selection-explainer-thread-selection.is-collapsed {
+  --codex-selection-explainer-history-lines: 5;
+  max-height: calc(var(--codex-selection-explainer-history-lines) * 1.45em + 16px);
+  overflow: auto;
+}
+
+.codex-selection-explainer-thread-messages {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 116px;
+  overflow: auto;
+  border: 1px solid #c8c4b7;
+  border-radius: 0;
+  padding: 8px;
+  background: #f0f0ea;
+}
+
+.codex-selection-explainer-thread-empty,
+.codex-selection-explainer-thread-error {
+  color: #5c5f58;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.codex-selection-explainer-thread-error {
+  color: #7a2e20;
+}
+
+.codex-selection-explainer-thread-message {
+  display: grid;
+  gap: 3px;
+}
+
+.codex-selection-explainer-thread-message-label {
+  color: #5c5f58;
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.codex-selection-explainer-thread-message-body {
+  border: 1px solid #d5d0c1;
+  border-radius: 0;
+  padding: 7px 8px;
+  background: #fffffc;
+  color: #181a18;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.codex-selection-explainer-thread-message.is-user .codex-selection-explainer-thread-message-body {
+  border-left: 2px solid #9a7a2f;
+}
+
+.codex-selection-explainer-thread-message.is-assistant .codex-selection-explainer-thread-message-body {
+  border-left: 2px solid #214d3c;
+  background: #f7f8f4;
+}
+
+.codex-selection-explainer-thread-message.is-pending .codex-selection-explainer-thread-message-body {
+  color: #5c5f58;
+}
+
+.codex-selection-explainer-composer {
+  display: grid;
+  gap: 7px;
 }
 
 #codex-selection-explainer-dialog [data-submit] {
@@ -422,7 +538,7 @@
 }
 
 #codex-selection-explainer-dialog.codex-selection-explainer-history-dialog {
-  grid-template-rows: auto auto auto auto;
+  grid-template-rows: auto auto minmax(116px, 1fr) auto;
 }
 
 .codex-selection-explainer-history-block {

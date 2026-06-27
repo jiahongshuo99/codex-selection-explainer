@@ -24,8 +24,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === "codex-selection-explain") {
-    explainAndSaveHistory(message).then(sendResponse);
+  if (
+    message.type === "codex-selection-explain" ||
+    message.type === "codex-selection-thread-message"
+  ) {
+    explainAndSaveThread(message).then(sendResponse);
     return true;
   }
 
@@ -63,28 +66,48 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-async function explainAndSaveHistory(message) {
+async function explainAndSaveThread(message) {
+  const state = await historyStore.readHistoryState(chrome.storage.local);
+  const requestUrl = message.context?.url || message.url || "";
+  const existingRecord = message.threadId
+    ? historyStore.getRecordForUrl(state, requestUrl, message.threadId)
+    : null;
+  const selection = existingRecord?.selectionText || message.selection;
+  const context = existingRecord?.contextSnapshot || message.context;
+  const anchor = existingRecord?.anchor || message.anchor;
+  const threadMessages = existingRecord?.messages || [];
+
   const response = await sendNative({
     type: "explain",
     question: message.question,
-    selection: message.selection,
-    context: message.context
+    selection,
+    context,
+    threadMessages
   });
 
   if (!response?.ok) {
     return response;
   }
 
-  const record = historyStore.buildHistoryRecord({
-    selection: message.selection,
-    question: message.question,
-    answer: response.text || "",
-    context: message.context,
-    anchor: message.anchor
-  });
-
   try {
-    await historyStore.saveHistoryRecord(chrome.storage.local, record);
+    const record = existingRecord
+      ? await historyStore.appendThreadTurnInStorage(chrome.storage.local, requestUrl, existingRecord.id, {
+          question: message.question,
+          answer: response.text || "",
+          usage: response.usage || null
+        })
+      : await historyStore.saveHistoryRecord(
+          chrome.storage.local,
+          historyStore.buildHistoryRecord({
+            selection,
+            question: message.question,
+            answer: response.text || "",
+            context,
+            anchor,
+            usage: response.usage || null
+          })
+        );
+
     return { ...response, historyRecord: record };
   } catch (error) {
     return {

@@ -1,5 +1,13 @@
 # Release Notes
 
+## Unreleased
+
+- Reworked explanation history from single QA records into local thread records.
+- Added continued follow-up questions for the same selected passage.
+- Changed prompt assembly to an append-only message format so stable selection and page context can remain a cacheable prefix across follow-up turns.
+- Updated the page dialog into a compact thread UI with selected-text context, message stream, and composer.
+- Preserved legacy QA records by normalizing them into thread-compatible records on read.
+
 ## 1.0.0 - 2026-06-27
 
 First stable release of Codex Selection Explainer.
